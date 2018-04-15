@@ -1,0 +1,327 @@
+---
+title: "Random Forest"
+author: "Rahul Singh" 
+date: "3/26/2018"
+output: html_document
+---
+Submission by Javier Contreras and Rahul Singh
+SCORE: 0.8185
+ID: rahulsinghrs
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+Loading libraries
+```{r}
+library(base)
+library(lubridate)
+library(dplyr)
+library(haven)
+library(data.table)
+library(Matrix)
+library(geosphere)
+library(mltools)
+library(mlr)
+library(caret)
+library(readr)
+library(liquidSVM)
+library(stringr)
+library(randomForest)
+library(rpart)
+library(ggplot2)
+
+```
+
+Importing data
+```{r}
+rm(list=ls()) #to remove previously existing data in the R memory
+master_data<- read.csv("~/Desktop/Pump_it_up_ML_2/DATASET/Training_set_values.csv")
+master_data_labels<-read.csv("~/Desktop/Pump_it_up_ML_2/DATASET/Training_set_lables.csv")
+test_data<-read.csv("~/Desktop/Pump_it_up_ML_2/DATASET/Test_set_values.csv")
+```
+
+Checking for NAs
+```{r}
+sapply(master_data, function(x) sum(is.na(x))) #we observe no missing values
+```
+Checking for duplicate rows
+```{r}
+master_data[duplicated(master_data),]  # shows which rows are repeated 
+#in this case there are no duplicate rows
+```
+
+```{r}
+model1_df<-master_data
+test_model1_df<-test_data
+```
+
+```{r}
+#Replacing all the whitespace in names of columns with underscore so that later on we do not face any issues while calling on the names
+names(model1_df) <- gsub(" ", "_", names(model1_df))
+
+#levels(model1_df$basin)
+
+#Replacing all the whitespace in factors with underscore so that later on we do not face any issues while calling on the names
+levels(model1_df$basin) <- gsub(" ", "_", levels(model1_df$basin))
+
+levels(model1_df$region) <- gsub(" ", "_", levels(model1_df$region))
+
+#region codes are integers; this needs to be converted to factors
+model1_df$region_code<- as.factor(model1_df$region_code) #27 levels
+
+model1_df$district_code<- as.factor(model1_df$district_code) #20 levels
+
+#lga row is already a factor with 125 levels
+#ward is also a factor with 2092 levels
+
+#population round the well is okay as integers
+
+#since permit column has empty values in true and false, we can split the column into three sub columns permit_true with 1 for true and 0 otherwise;
+#columns permit_false with 1 for value matching false and 0 otherwise;
+model1_df$permit_true<-ifelse(model1_df$permit=="True",1,0)
+model1_df$permit_false<-ifelse(model1_df$permit=="False",1,0)
+model1_df$permit_dontknow<-ifelse(model1_df$permit=="",1,0)
+
+#remove the permit column
+model1_df <- subset(model1_df, select = -c(permit))
+```
+
+
+
+```{r}
+levels(model1_df$extraction_type) <- gsub(" ", "_", levels(model1_df$extraction_type)) #removing white space in levels
+
+levels(model1_df$extraction_type_group) <- gsub(" ", "_", levels(model1_df$extraction_type_group))
+
+levels(model1_df$extraction_type_class) <- gsub(" ", "_", levels(model1_df$extraction_type_class))
+
+levels(model1_df$management) <- gsub(" ", "_", levels(model1_df$management))
+
+#management group looks fine in terms of whitespace
+levels(model1_df$payment) <- gsub(" ", "_", levels(model1_df$payment))
+
+levels(model1_df$payment_type) <- gsub(" ", "_", levels(model1_df$payment_type))
+
+levels(model1_df$water_quality) <- gsub(" ", "_", levels(model1_df$water_quality))
+
+levels(model1_df$quality_group) <- gsub(" ", "_", levels(model1_df$quality_group))
+
+#quantity has 5 factors and no whitespace
+
+#quantity and quantity_group are the same, so we remove it
+model1_df <- subset(model1_df, select = -c(quantity_group))
+
+levels(model1_df$source) <- gsub(" ", "_", levels(model1_df$source))
+
+#source and source_type are the same, so we remove the other column
+model1_df <- subset(model1_df, select = -c(source_type))
+
+levels(model1_df$source_class) <- gsub(" ", "_", levels(model1_df$source_class))
+
+levels(model1_df$waterpoint_type) <- gsub(" ", "_", levels(model1_df$waterpoint_type))
+
+#remove waterpoint_type_group as it is the same as waterpoint_type
+
+model1_df <- subset(model1_df, select = -c(waterpoint_type_group))
+
+model1_df$permit_true<- as.factor(model1_df$permit_true)
+model1_df$permit_false<- as.factor(model1_df$permit_false)
+model1_df$permit_dontknow<- as.factor(model1_df$permit_dontknow)
+
+```
+
+
+```{r}
+#Replacing all the whitespace in names of columns with underscore so that later on we do not face any issues while calling on the names
+names(test_model1_df) <- gsub(" ", "_", names(test_model1_df))
+
+#levels(model1_df$basin)
+
+#Replacing all the whitespace in factors with underscore so that later on we do not face any issues while calling on the names
+levels(test_model1_df$basin) <- gsub(" ", "_", levels(test_model1_df$basin))
+
+levels(test_model1_df$region) <- gsub(" ", "_", levels(test_model1_df$region))
+
+#region codes are integers; this needs to be converted to factors
+test_model1_df$region_code<- as.factor(test_model1_df$region_code) #27 levels
+
+test_model1_df$district_code<- as.factor(test_model1_df$district_code) #20 levels
+
+#lga row is already a factor with 125 levels
+#ward is also a factor with 2092 levels
+
+#population round the well is okay as integers
+
+#since permit column has empty values in true and false, we can split the column into three sub columns permit_true with 1 for true and 0 otherwise;
+#columns permit_false with 1 for value matching false and 0 otherwise;
+test_model1_df$permit_true<-ifelse(test_model1_df$permit=="True",1,0)
+test_model1_df$permit_false<-ifelse(test_model1_df$permit=="False",1,0)
+test_model1_df$permit_dontknow<-ifelse(test_model1_df$permit=="",1,0)
+
+#remove the permit column
+test_model1_df <- subset(test_model1_df, select = -c(permit))
+```
+
+
+
+```{r}
+levels(test_model1_df$extraction_type) <- gsub(" ", "_", levels(test_model1_df$extraction_type)) #removing white space in levels
+
+levels(test_model1_df$extraction_type_group) <- gsub(" ", "_", levels(test_model1_df$extraction_type_group))
+
+levels(test_model1_df$extraction_type_class) <- gsub(" ", "_", levels(test_model1_df$extraction_type_class))
+
+levels(test_model1_df$management) <- gsub(" ", "_", levels(test_model1_df$management))
+
+#management group looks fine in terms of whitespace
+levels(test_model1_df$payment) <- gsub(" ", "_", levels(test_model1_df$payment))
+
+levels(test_model1_df$payment_type) <- gsub(" ", "_", levels(test_model1_df$payment_type))
+
+levels(test_model1_df$water_quality) <- gsub(" ", "_", levels(test_model1_df$water_quality))
+
+levels(test_model1_df$quality_group) <- gsub(" ", "_", levels(test_model1_df$quality_group))
+
+#quantity has 5 factors and no whitespace
+
+#quantity and quantity_group are the same, so we remove it
+test_model1_df <- subset(test_model1_df, select = -c(quantity_group))
+
+levels(test_model1_df$source) <- gsub(" ", "_", levels(test_model1_df$source))
+
+#source and source_type are the same, so we remove the other column
+test_model1_df <- subset(test_model1_df, select = -c(source_type))
+
+levels(test_model1_df$source_class) <- gsub(" ", "_", levels(test_model1_df$source_class))
+
+levels(test_model1_df$waterpoint_type) <- gsub(" ", "_", levels(test_model1_df$waterpoint_type))
+
+#remove waterpoint_type_group as it is the same as waterpoint_type
+
+test_model1_df <- subset(test_model1_df, select = -c(waterpoint_type_group))
+
+test_model1_df$permit_true<- as.factor(test_model1_df$permit_true)
+test_model1_df$permit_false<- as.factor(test_model1_df$permit_false)
+test_model1_df$permit_dontknow<- as.factor(test_model1_df$permit_dontknow)
+```
+
+
+```{r}
+model1_df$fe_days <- as.numeric(as.Date("2014-01-01") - as.Date(model1_df$date_recorded))
+model1_df$fe_mont <- month(ymd(model1_df$date_recorded))
+model1_df$fe_dist <- distGeo(as.matrix(model1_df[,c('longitude','latitude')]), c(0,0))
+
+test_model1_df$fe_days <- as.numeric(as.Date("2014-01-01") - as.Date(test_model1_df$date_recorded))
+test_model1_df$fe_mont <- month(ymd(test_model1_df$date_recorded))
+test_model1_df$fe_dist <- distGeo(as.matrix(test_model1_df[,c('longitude','latitude')]), c(0,0))
+```
+
+The amount variable is skewed, the log transformation can help during the quantile sketch. Addition of one is needed to avoid missing values.The square is added and a dummy to flag values above the third quantile.
+```{r}
+model1_df$amount <- log(model1_df$amount_tsh + 1)
+model1_df$amount_squared <- model1_df$amount * model1_df$amount
+model1_df$amount_q3 <- 0
+model1_df$amount_q3[model1_df$amount > 3.044] <- 1
+```
+
+```{r}
+test_model1_df$amount <- log(test_model1_df$amount_tsh + 1)
+test_model1_df$amount_squared <- test_model1_df$amount * test_model1_df$amount
+test_model1_df$amount_q3 <- 0
+test_model1_df$amount_q3[test_model1_df$amount > 3.044] <- 1
+```
+
+
+The population is log transformed. Based on the histogram the log transformed distribution has a saddle. Data points above the saddle are flagged. 
+```{r}
+model1_df$population <- log(model1_df$population + 1)
+model1_df$population_below <- 0
+model1_df$population_below[model1_df$Population < 2] <- 1
+```
+
+```{r}
+test_model1_df$population <- log(test_model1_df$population + 1)
+test_model1_df$population_below <- 0
+test_model1_df$population_below[test_model1_df$Population < 2] <- 1
+```
+
+```{r}
+#' Finally, `lga` (local geographic area?) is interesting because there are distinct areas (e.g. *arusha*) but some of them are split into rural and urban (e.g., *arusha rural* and *arusha urban*). I transform this variable into a new feature that takes three values: rural, urban and other.
+
+model1_df = model1_df %>% mutate(lga = ifelse( grepl(" rural", lga), "rural",ifelse( grepl(" urban", lga), "urban","other")))
+test_model1_df = test_model1_df %>% mutate(lga = ifelse( grepl(" rural", lga), "rural",ifelse( grepl(" urban", lga), "urban","other")))
+```
+
+```{r}
+train_data_labels<-master_data_labels["status_group"]
+```
+
+
+**Remember that id column is still in data**
+```{r}
+model1_df<-model1_df[,-c(2,3,4,6,7,8,9,10,12,17,19,20,21,22,24)]
+test_model1_df<-test_model1_df[,-c(2,3,4,6,7,8,9,10,12,17,19,20,21,22,24)]
+```
+
+```{r}
+columns= (colnames(test_model1_df))
+train_and_test<- rbind(model1_df,test_model1_df)
+end_train <- nrow(model1_df)
+end <- nrow(train_and_test)
+trainm <- left_join(x = model1_df, y = master_data_labels, by = "id")
+testm <- test_model1_df
+```
+
+```{r}
+trainm=trainm %>% mutate_if(is.character, as.factor)
+testm=testm %>% mutate_if(is.character, as.factor)
+```
+
+```{r}
+ntrees <- 300
+```
+
+```{r}
+trainm <- trainm[,-1]
+testm <- testm[,-1]
+```
+
+
+```{r}
+
+model_forest <- randomForest(as.factor(status_group) 
+                             ~ .,data = trainm
+                             ,importance = TRUE
+                             ,ntree = ntrees
+                             ,nodesize = 5
+)
+
+```
+
+```{r}
+pred_forest_train<- predict(model_forest,trainm)
+table(trainm$status_group,pred_forest_train)
+```
+
+```{r}
+common <- intersect(names(trainm), names(testm)) 
+for (p in common) { 
+  if (class(trainm[[p]]) == "factor") { 
+    levels(testm[[p]]) <- levels(trainm[[p]]) 
+  } 
+}
+
+
+pred_forest_test<- predict(model_forest,testm)
+submissionForest<-data.frame(test_data$id)
+submissionForest$status_group<- pred_forest_test
+str(submissionForest)
+names(submissionForest)[1]<-"id"
+names(submissionForest)[2]<-"status_group"
+submissionForest$status_group <- as.factor(submissionForest$status_group)
+```
+
+```{r}
+file_out <- c("Random_Forest_Model2_trial.csv")
+write.csv(submissionForest, file = file_out, row.names=F,col.names=F,sep="\t", quote=FALSE)
+```
