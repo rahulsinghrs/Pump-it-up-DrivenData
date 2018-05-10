@@ -4,9 +4,7 @@ author: "Rahul Singh"
 date: "3/26/2018"
 output: html_document
 ---
-Submission by Javier Contreras and Rahul Singh
-SCORE: 0.8185
-ID: rahulsinghrs
+
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
